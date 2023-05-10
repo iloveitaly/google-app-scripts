@@ -20,14 +20,19 @@ Write a google app script which exposes a GET endpoint which, when requested, se
 
 const doGet = (e) => {
   const now = new Date();
-  const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
-  const threads = GmailApp.search('subject:"amazon.com, action needed: Account confirmation request" after:' + tenMinutesAgo.toISOString().slice(0,10));
+  const oneMinute = 60 * 1000;
+  const tenMinutesAgo = new Date(now.getTime() - 10 * oneMinute);
+  const afterTimestamp = Math.floor(tenMinutesAgo.getTime() / 1000);
+  console.log('after search format: ' + afterTimestamp);
+
+  const threads = GmailApp.search('subject:"amazon.com, action needed: Account confirmation request" after:' + afterTimestamp);
+  console.log('Number of threads found: ' + threads.length);
 
   if (threads.length > 0) {
     const messages = threads[0].getMessages();
     const htmlBody = messages[0].getBody();
     return HtmlService.createHtmlOutput(htmlBody);
   } else {
-    return HtmlService.createHtmlOutput("No email found in the last 10 minutes.");
+    return HtmlService.createHtmlOutput("no approval link");
   }
 };
