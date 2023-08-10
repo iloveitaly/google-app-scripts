@@ -39,8 +39,9 @@
 
 */
 
+var GUEST_EMAIL = 'partner@gmail.com';
+
 function updateFutureEventsGuestsCanModify() {
-  var guestEmail = 'partner@gmail.com';
   var calendar = CalendarApp.getDefaultCalendar();
   var calendarId = calendar.getId();
   var now = (new Date()).toISOString();
@@ -53,25 +54,32 @@ function updateFutureEventsGuestsCanModify() {
   do {
     events = Calendar.Events.list(calendarId, {
       timeMin: now,
-      pageToken: nextPageToken
+      pageToken: nextPageToken,
+      // maximum result size
+      maxResults: 2500
     });
 
     for (var i = 0; i < events.items.length; i++) {
       var apiEvent = events.items[i];
       var attendees = apiEvent.getAttendees() || []
 
-      if (!apiEvent.organizer.self) {
-        Logger.log('Event not updated: ' + apiEvent.summary + ', Current user is not the owner');
+      if(apiEvent.organizer === undefined) {
+        Logger.log('Undefined organizer for event: ' + apiEvent.summary);
         continue;
+      } else {
+        if (!apiEvent.organizer.self) {
+          Logger.log('Event not updated: ' + apiEvent.summary + ', Current user is not the owner');
+          continue;
+        }
       }
 
       // Check if the guestEmail is in the attendee list
       var guestFound = attendees.some(function(attendee) {
-        return attendee.email === guestEmail;
+        return attendee.email === GUEST_EMAIL;
       });
 
       if (!guestFound) {
-        Logger.log('Event not updated: ' + apiEvent.summary + ', "' + guestEmail + '" not found in the guest list');
+        Logger.log('Event not updated: ' + apiEvent.summary + ', "' + GUEST_EMAIL + '" not found in the guest list');
         continue;
       }
 
