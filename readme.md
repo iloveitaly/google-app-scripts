@@ -1,3 +1,7 @@
+## Debugging
+Some key URLs:
+
+- https://script.google.com/home/triggers
 
 ## Inspiration
 
