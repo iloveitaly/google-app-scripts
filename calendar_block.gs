@@ -1,4 +1,4 @@
-// https://github.com/marianosimone/google-app-scripts/blob/main/blockFromPersonalCalendar.gs
+// originally from: https://github.com/marianosimone/google-app-scripts/blob/main/blockFromPersonalCalendar.gs
 
 /**
  * This script takes events from a list of calendars (pressumably personal), and blocks the times
@@ -7,23 +7,27 @@
  * Configuration:
  * - Follow the instructions on https://support.google.com/calendar/answer/37082 to share your personal calendar with your work one
  * - In your work account, create a new https://script.google.com/ project, inside it a script, and paste the contents of this file
- * - Add "Calendar" to the *Services* section
+ * - Add "Calendar" to the *Services* section. Without this, you'll get a "Calendar is not defined" javascript error.
  * - Set a trigger for an hourly run of `blockFromPersonalCalendars`
  *
  * Developer reference: https://developers.google.com/apps-script/reference/calendar/
  */
+
 const CONFIG = {
-  calendarIds: [
+  sourceCalendarIds: [
     "mypersonalcalendar@gmail.com",
     "anothercalendarid@group.calendar.google.com",
   ], // (personal) calendars from which to block time
-  daysToBlockInAdvance: 30, // how many days to look ahead for
-  blockedEventTitle: "❌ Busy", // the title to use in the created events in the (work) calendar
-  skipWeekends: true, // if weekend events should be skipped or not
-  skipFreeAvailabilityEvents: true, // don't block events that set visibility as "Free" in the personal calendar
-  workingHoursStartAt: 900, // any events ending before this time will be skipped. Use 0 if you don't care about working hours
-  workingHoursEndAt: 1800, // any events starting after this time will be skipped. Use 2300
-  assumeAllDayEventsInWorkCalendarIsOOO: true, // if the work calendar has an all-day event, assume it's an Out Of Office day, and don't block times
+  targetCalendarId: CalendarApp.getDefaultCalendar().getId(), // calendar to block time in
+  daysToBlockInAdvance: 14, // how many days to look ahead for
+  blockedEventTitle: "Blocked", // the title to use in the created events in the (work) calendar
+  requireDescriptionTag: "#blocked", // if set, only events with this tag in the description will be considered
+  skipOutsideWorkingHours: false, // if events outside of working hours should be skipped or not
+  skipWeekends: false, // if weekend events should be skipped or not
+  skipFreeAvailabilityEvents: false, // don't block events that set visibility as "Free" in the personal calendar
+  workingHoursStartAt: 0, // any events ending before this time will be skipped. Use 0 if you don't care about working hours
+  workingHoursEndAt: 2300, // any events starting after this time will be skipped. Use 2300
+  assumeAllDayEventsInWorkCalendarIsOOO: false, // if the work calendar has an all-day event, assume it's an Out Of Office day, and don't block times
   color: CalendarApp.EventColor.YELLOW, // set the color of any newly created events (see https://developers.google.com/apps-script/reference/calendar/event-color)
 };
 
@@ -128,8 +132,12 @@ const blockFromPersonalCalendars = () => {
     );
   };
 
-  CONFIG.calendarIds.forEach((calendarId) => {
-    console.log(`📆 Processing secondary calendar ${calendarId}`);
+  const primaryCalendar = CalendarApp.getCalendarById(CONFIG.targetCalendarId);
+  const timeZoneAware = CalendarAwareTimeConverter(primaryCalendar);
+
+  // NOTE this is entrypoint to the application logic
+  CONFIG.sourceCalendarIds.forEach((calendarId) => {
+    console.log(`📆 Processing source calendar ${calendarId}`);
 
     const copiedEventTag = calendarEventTag(calendarId);
 
@@ -138,9 +146,7 @@ const blockFromPersonalCalendars = () => {
       Date.now() + 1000 * 60 * 60 * 24 * CONFIG.daysToBlockInAdvance
     );
 
-    const primaryCalendar = CalendarApp.getDefaultCalendar();
-    const timeZoneAware = CalendarAwareTimeConverter(primaryCalendar);
-
+    // get a list of events on the target calendar
     const knownEvents = Object.assign(
       {},
       ...primaryCalendar
@@ -160,18 +166,10 @@ const blockFromPersonalCalendars = () => {
 
     const eventsInSecondaryCalendar = getRichEvents(calendarId, now, endDate);
 
-    eventsInSecondaryCalendar
-      .filter(
-        withLogging("already known", (event) => {
-          return (
-            !knownEvents.hasOwnProperty(eventTagValue(event)) ||
-            hasTimeChanges(event, knownEvents[eventTagValue(event)])
-          );
-        })
-      )
+    const filteredEventsInSecondaryCalendar = eventsInSecondaryCalendar
       .filter(
         withLogging("outside of work hours", (event) =>
-          timeZoneAware.isOutOfWorkHours(event)
+          !CONFIG.skipOutsideWorkingHours || timeZoneAware.isOutOfWorkHours(event)
         )
       )
       .filter(
@@ -195,6 +193,24 @@ const blockFromPersonalCalendars = () => {
             !CONFIG.skipFreeAvailabilityEvents || !event.showFreeAvailability
         )
       )
+      .filter(
+        withLogging(
+          `doesn't have the required tag "${CONFIG.requireDescriptionTag}"`,
+          (event) =>
+            !CONFIG.requireDescriptionTag ||
+            event.getDescription().includes(CONFIG.requireDescriptionTag)
+        )
+    )
+
+    filteredEventsInSecondaryCalendar
+      .filter(
+        withLogging("already known", (event) => {
+          return (
+            !knownEvents.hasOwnProperty(eventTagValue(event)) ||
+            hasTimeChanges(event, knownEvents[eventTagValue(event)])
+          );
+        })
+      )
       .forEach((event) => {
         const knownEvent = knownEvents[eventTagValue(event)];
         if (knownEvent) {
@@ -211,16 +227,25 @@ const blockFromPersonalCalendars = () => {
           .createEvent(
             CONFIG.blockedEventTitle,
             event.getStartTime(),
-            event.getEndTime()
-          )
+            event.getEndTime(),
+            {
+              sendInvites: true
+            }
+        )
+          // tags are effectively metadata attached to a gcal event
+          // https://developers.google.com/apps-script/reference/calendar/calendar-event-series#setTag(String,String)
           .setTag(copiedEventTag, eventTagValue(event))
           .setColor(CONFIG.color)
           .removeAllReminders(); // Avoid double notifications
       });
 
+    // remove events from the target calendar that are no longer on the source calendar
     const tagsOnSecondaryCalendar = new Set(
-      eventsInSecondaryCalendar.map(eventTagValue)
+      filteredEventsInSecondaryCalendar.map(eventTagValue)
     );
+
+    console.log(`🗑️ Checking for events to delete. Tag count: ${tagsOnSecondaryCalendar.size}. Event count: ${knownEvents.size}`);
+
     Object.values(knownEvents)
       .filter(
         (event) => !tagsOnSecondaryCalendar.has(event.getTag(copiedEventTag))
@@ -253,10 +278,10 @@ const cleanUpAllCalendars = () => {
     Date.now() + 1000 * 60 * 60 * 24 * CONFIG.daysToBlockInAdvance
   );
   const tagsOfEventsToDelete = new Set(
-    CONFIG.calendarIds.map(calendarEventTag)
+    CONFIG.sourceCalendarIds.map(calendarEventTag)
   );
 
-  CalendarApp.getDefaultCalendar()
+  CONFIG.targetCalendarId
     .getEvents(now, endDate)
     .filter((event) =>
       event.getAllTagKeys().some((tag) => tagsOfEventsToDelete.has(tag))
