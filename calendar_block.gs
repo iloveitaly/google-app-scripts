@@ -29,6 +29,7 @@ const CONFIG = {
   workingHoursEndAt: 2300, // any events starting after this time will be skipped. Use 2300
   assumeAllDayEventsInWorkCalendarIsOOO: false, // if the work calendar has an all-day event, assume it's an Out Of Office day, and don't block times
   color: CalendarApp.EventColor.YELLOW, // set the color of any newly created events (see https://developers.google.com/apps-script/reference/calendar/event-color)
+  defaultGuests: [], // default guests to add to the blocked events
 };
 
 const blockFromPersonalCalendars = () => {
@@ -228,8 +229,10 @@ const blockFromPersonalCalendars = () => {
             CONFIG.blockedEventTitle,
             event.getStartTime(),
             event.getEndTime(),
+            // https://developers.google.com/apps-script/reference/calendar/calendar#createEvent(String,Date,Date,Object)
             {
-              sendInvites: true
+              sendInvites: true,
+              guests: CONFIG.defaultGuests,
             }
         )
           // tags are effectively metadata attached to a gcal event

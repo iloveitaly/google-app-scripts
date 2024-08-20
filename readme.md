@@ -13,3 +13,4 @@ Some key URLs:
 ## Inspiration
 
 * https://github.com/marianosimone/google-app-scripts
+* https://medium.com/@willroman/auto-block-time-on-your-work-google-calendar-for-your-personal-events-2a752ae91dab
