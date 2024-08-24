@@ -29,7 +29,7 @@ const CONFIG = {
   workingHoursEndAt: 2300, // any events starting after this time will be skipped. Use 2300
   assumeAllDayEventsInWorkCalendarIsOOO: false, // if the work calendar has an all-day event, assume it's an Out Of Office day, and don't block times
   color: CalendarApp.EventColor.YELLOW, // set the color of any newly created events (see https://developers.google.com/apps-script/reference/calendar/event-color)
-  defaultGuests: [], // default guests to add to the blocked events
+  defaultGuests: null, // default guests to add to the blocked events, comma-separated list of emails
 };
 
 const blockFromPersonalCalendars = () => {
@@ -136,6 +136,9 @@ const blockFromPersonalCalendars = () => {
   const primaryCalendar = CalendarApp.getCalendarById(CONFIG.targetCalendarId);
   const timeZoneAware = CalendarAwareTimeConverter(primaryCalendar);
 
+  // to ensure the same event shared across multiple calendars are not processed twice
+  const seenEventIds = []
+
   // NOTE this is entrypoint to the application logic
   CONFIG.sourceCalendarIds.forEach((calendarId) => {
     console.log(`📆 Processing source calendar ${calendarId}`);
@@ -203,7 +206,14 @@ const blockFromPersonalCalendars = () => {
         )
     )
 
-    filteredEventsInSecondaryCalendar
+    const uniqueEventsToThisCalendar = filteredEventsInSecondaryCalendar.filter(
+      (event) => !seenEventIds.includes(event.getId())
+    )
+
+    const eventIds = uniqueEventsToThisCalendar.map((event) => event.getId())
+    seenEventIds.push(...eventIds)
+
+    uniqueEventsToThisCalendar
       .filter(
         withLogging("already known", (event) => {
           return (
@@ -212,6 +222,7 @@ const blockFromPersonalCalendars = () => {
           );
         })
       )
+      .filter(withLogging("already processed on other calendar", (event) => seenEventIds.includes(event.getId())))
       .forEach((event) => {
         const knownEvent = knownEvents[eventTagValue(event)];
         if (knownEvent) {
@@ -224,6 +235,8 @@ const blockFromPersonalCalendars = () => {
             `✅ Need to create "${event.getTitle()}" (${event.getStartTime()}) [${event.getId()}]`
           );
         }
+
+        // create a new event in the target calendar
         primaryCalendar
           .createEvent(
             CONFIG.blockedEventTitle,
