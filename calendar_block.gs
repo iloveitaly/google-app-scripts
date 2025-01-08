@@ -202,7 +202,7 @@ const blockFromPersonalCalendars = () => {
           `doesn't have the required tag "${CONFIG.requireDescriptionTag}"`,
           (event) =>
             !CONFIG.requireDescriptionTag ||
-            event.getDescription().includes(CONFIG.requireDescriptionTag)
+            event.getDescription().toLowerCase().includes(CONFIG.requireDescriptionTag.toLowerCase())
         )
     )
 
@@ -210,6 +210,7 @@ const blockFromPersonalCalendars = () => {
       (event) => !seenEventIds.includes(event.getId())
     )
 
+    // event IDs are consistent across shared calendars
     const eventIds = uniqueEventsToThisCalendar.map((event) => event.getId())
     seenEventIds.push(...eventIds)
 
